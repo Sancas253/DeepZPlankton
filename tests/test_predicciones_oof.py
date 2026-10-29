@@ -58,7 +58,7 @@ class EntrenamientoConPrediccionesTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             deepz_pipeline.etapa_entrenar(
                 ARCH, str(cls.data), str(cls.salida),
-                {"N_SPLITS": "3", "EPOCHS": "1", "BATCH_SIZE": "2", "IMAGE_SIZE": "56", "VIT_SIZE": "56",
+                {"N_SPLITS": "3", "EPOCHS": "1", "BATCH_SIZE": "2", "IMAGE_SIZE": "56",
                  "ADAPTER_EPOCHS": "0", "WARMUP_EPOCHS": "1"}, aumentar=False)
 
     @classmethod
