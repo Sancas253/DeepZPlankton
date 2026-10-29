@@ -1,0 +1,17 @@
+# Dependencias para entrenar y exportar modelos (pipeline/, entrenamiento_v1/)
+# Instalar PyTorch según la GPU/CUDA de cada equipo: https://pytorch.org
+-r requirements.txt
+torch
+torchvision
+timm
+transformers
+scikit-learn
+tqdm
+matplotlib
+seaborn
+scipy
+umap-learn
+onnx
+# Solo para resnet50_legacy y efficientnetb3 (Keras)
+tensorflow
+tf2onnx

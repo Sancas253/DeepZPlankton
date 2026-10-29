@@ -1,0 +1,41 @@
+name: Tests y build Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Tests de la app
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >
+          pytest -q tests
+          --ignore=tests/test_pipeline_dinov2_convnext_plus.py
+          --ignore=tests/test_pipeline_dinov2_ft_convnext.py
+          --ignore=tests/test_pipeline_dinov2_spatial.py
+          --ignore=tests/test_pipeline_fusion_plus.py
+          --ignore=tests/test_predicciones_oof.py
+
+      - name: Build con PyInstaller
+        run: pyinstaller --noconfirm DeepZPlankton_V2.spec
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeepZPlanktonV3-windows
+          path: dist/DeepZPlanktonV3/

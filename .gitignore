@@ -4,20 +4,35 @@ __pycache__/
 .venv/
 venv/
 .ipynb_checkpoints/
+.pytest_cache/
+.benchmarks/
 
-# Datos y modelos (no se versionan)
-data/
-datasets/
-*.h5
+# Build de PyInstaller
+build/
+dist/
+
+# Pesos de modelos (superan el límite de 100 MB de GitHub)
+*.onnx
 *.pt
 *.pth
-*.onnx
+*.h5
+*.keras
 *.ckpt
+*.safetensors
 
-# Resultados generados
-output/
-resultados/
+# Datos y salidas generadas por la app
+Datos/
+Segmentos/
+Historico/
+deepzplankton/Datos/
+deepzplankton/Segmentos/
+deepzplankton/Historico/
+dataset/
+datasets/
 
-# Sistema
+# Entorno local
+.claude/
+.agents/
+.codex
 .DS_Store
 Thumbs.db

@@ -1,0 +1,371 @@
+# ==============================================================
+# ENTRENAMIENTO DINOv2 ViT-B/14 FINE-TUNING — PyTorch + timm — Colab GPU
+# K-Fold Cross-Validation
+# ==============================================================
+# El mismo backbone que dinov2_mlp (DINOv2-base, auto-supervisado sobre
+# 142M imágenes), pero entrenado completo en vez de congelado. Congelado
+# llegó a F1 macro 0.917: el límite era estar congelado, no las features.
+# Es un ViT (atención global entre parches), no una CNN: aunque no le
+# gane solo a convnext_tiny_plus, comete errores distintos y es el mejor
+# socio para un ensemble.
+#
+# Receta de convnext_tiny_plus ajustada a ViT (LR 5e-5, layer decay
+# 0.75, lo usual para fine-tuning de transformers). Versión timm
+# (vit_base_patch14_dinov2): soporta layer decay y exporta a ONNX.
+# 224 px = 16x16 parches de 14 px; IMAGE_SIZE debe ser múltiplo de 14.
+#
+# Receta:
+#   - pesos DINOv2 LVD-142M
+#   - 288 px (ConvNeXt acepta cualquier tamaño; el V3 lo lee de meta.json)
+#   - fine-tuning completo en una sola fase
+#   - AdamW + layer-wise LR decay (capas cercanas a la entrada aprenden menos)
+#   - warmup + coseno
+#   - label smoothing + drop path
+#   - EMA de pesos: se evalúa y se guarda el modelo promediado
+#   - precisión mixta (fp16) en GPU
+# Igual que el resto: folds, augmentación (aumentacion.py), class
+# weights, selección por val_acc, cv_results.json y meta.json.
+# Salida: fold_k/model.pt + fold_k/meta.json + cv_results.json
+# ==============================================================
+# Instalar dependencias en Colab si es necesario:
+#   !pip install timm scikit-learn -q
+# ==============================================================
+import os
+import json
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Subset
+from torchvision import datasets, transforms
+from sklearn.model_selection import StratifiedKFold
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.metrics import (accuracy_score, f1_score, balanced_accuracy_score,
+                             confusion_matrix, classification_report)
+import timm
+from timm.optim import create_optimizer_v2
+from timm.scheduler import CosineLRScheduler
+from timm.utils import ModelEmaV2
+from tqdm import tqdm
+
+# ==============================================================
+# CONFIGURACIÓN
+# ==============================================================
+RUTA_DATOS      = "/content/dataset_local"
+OUTPUT_DIR      = "/content/dinov2_ft"
+PESOS           = "vit_base_patch14_dinov2.lvd142m"
+CLASS_WEIGHTS   = "balanced"    # "balanced" o "sqrt"
+IMAGE_SIZE      = 224
+BATCH_SIZE      = 32
+SEED            = 42
+EPOCHS          = 30
+WARMUP_EPOCHS   = 3
+LR              = 5e-5
+LR_MIN          = 1e-6
+WEIGHT_DECAY    = 0.05
+LAYER_DECAY     = 0.75
+LABEL_SMOOTHING = 0.1
+DROP_PATH       = 0.1
+EMA_DECAY       = 0.999
+N_SPLITS        = 5
+PATIENCE        = 8
+NUM_WORKERS     = 2
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+torch.manual_seed(SEED)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+USE_AMP = device.type == "cuda"
+print(f"🚀 Dispositivo: {device} | precisión mixta: {USE_AMP}")
+# Arquitectura timm (sin la etiqueta de pesos): la usan exportar_onnx y el V3
+ARCH = PESOS.split(".")[0]
+print(f"🔹 Pesos: {PESOS} | {IMAGE_SIZE}px | LR {LR} | layer decay {LAYER_DECAY} | "
+      f"class weights {CLASS_WEIGHTS}")
+
+# ==============================================================
+# TRANSFORMS
+# ImageNet mean/std (lo que espera ConvNeXt-Tiny de timm)
+# ==============================================================
+imagenet_mean = [0.485, 0.456, 0.406]
+imagenet_std  = [0.229, 0.224, 0.225]
+
+# Augmentación predeterminada del pipeline (aumentacion.py, compartida por
+# todos los modelos). Solo entrenamiento; val/test van sin augmentar.
+import aumentacion
+train_tf = aumentacion.transforms_entrenamiento(IMAGE_SIZE, imagenet_mean, imagenet_std)
+val_tf = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=imagenet_mean, std=imagenet_std),
+])
+
+# ==============================================================
+# DATASET COMPLETO Y PARTICIÓN EN FOLDS
+# ==============================================================
+full_dataset = datasets.ImageFolder(RUTA_DATOS)
+class_names  = full_dataset.classes
+num_classes  = len(class_names)
+print(f"📊 Clases detectadas ({num_classes}):", class_names)
+print(f"📊 Total imágenes: {len(full_dataset)}")
+
+all_labels  = np.array(full_dataset.targets)
+all_indices = np.arange(len(full_dataset))
+
+skf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=SEED)
+# fold_test_indices[k] contiene los índices asignados al fold k
+fold_test_indices = [test_idx for _, test_idx in skf.split(all_indices, all_labels)]
+
+class TransformSubset(torch.utils.data.Dataset):
+    def __init__(self, subset, transform):
+        self.subset    = subset
+        self.transform = transform
+    def __len__(self):
+        return len(self.subset)
+    def __getitem__(self, idx):
+        img, label = self.subset[idx]
+        return self.transform(img), label
+
+# ==============================================================
+# LOSS: class weights + label smoothing
+# No se usa nn.CrossEntropyLoss(weight=..., label_smoothing=...): PyTorch
+# pondera también el término de suavizado con el peso de CADA clase, así que
+# toda imagen termina empujada hacia las clases raras (pesos altos) y la
+# mayoritaria (Calanoida, peso bajo) se deja de aprender. Acá cada imagen
+# usa solo el peso de su clase real en los dos términos.
+# ==============================================================
+class WeightedSmoothCE(nn.Module):
+    def __init__(self, weight, smoothing):
+        super().__init__()
+        self.register_buffer("weight", weight)
+        self.smoothing = smoothing
+
+    def forward(self, logits, target):
+        logp = torch.log_softmax(logits.float(), dim=1)
+        nll    = -logp.gather(1, target[:, None]).squeeze(1)
+        smooth = -logp.mean(dim=1)
+        loss   = (1 - self.smoothing) * nll + self.smoothing * smooth
+        w = self.weight[target]
+        return (w * loss).sum() / w.sum()
+
+# ==============================================================
+# HELPERS DE ENTRENAMIENTO
+# ==============================================================
+def train_epoch(model, ema, loader, optimizer, scaler, criterion, epoch):
+    model.train()
+    total_loss, correct, total = 0.0, 0, 0
+    pbar = tqdm(loader, desc=f"Epoch {epoch:02d}/{EPOCHS} train", leave=False, unit="batch")
+    for imgs, labels in pbar:
+        imgs, labels = imgs.to(device), labels.to(device)
+        optimizer.zero_grad(set_to_none=True)
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=USE_AMP):
+            logits = model(imgs)
+            loss = criterion(logits, labels)
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        ema.update(model)
+        total_loss += loss.item() * imgs.size(0)
+        correct    += (logits.argmax(1) == labels).sum().item()
+        total      += imgs.size(0)
+        pbar.set_postfix(loss=f"{total_loss/total:.4f}", acc=f"{correct/total:.4f}")
+    return total_loss / total, correct / total
+
+def predecir(model, loader, desc):
+    model.eval()
+    preds, true = [], []
+    with torch.no_grad():
+        for imgs, labels in tqdm(loader, desc=desc, leave=False, unit="batch"):
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=USE_AMP):
+                logits = model(imgs.to(device))
+            preds.extend(logits.argmax(1).cpu().numpy().tolist())
+            true.extend(labels.numpy().tolist())
+    return true, preds
+
+# ==============================================================
+# K-FOLD LOOP
+# fold k: test=fold[k], val=fold[(k+1)%K], train=resto
+# ==============================================================
+fold_results = []
+oof_true, oof_pred = [], []   # predicciones out-of-fold agrupadas (para metricas por clase)
+
+for fold_idx in range(N_SPLITS):
+    print(f"\n{'='*60}")
+    print(f"  FOLD {fold_idx + 1}/{N_SPLITS}")
+    print(f"{'='*60}")
+
+    fold_output_dir = os.path.join(OUTPUT_DIR, f"fold_{fold_idx}")
+    os.makedirs(fold_output_dir, exist_ok=True)
+
+    test_fold   = fold_idx
+    val_fold    = (fold_idx + 1) % N_SPLITS
+    train_folds = [i for i in range(N_SPLITS) if i != test_fold and i != val_fold]
+
+    test_indices  = fold_test_indices[test_fold]
+    val_indices   = fold_test_indices[val_fold]
+    train_indices = np.concatenate([fold_test_indices[i] for i in train_folds])
+
+    train_ds = TransformSubset(Subset(full_dataset, train_indices), train_tf)
+    val_ds   = TransformSubset(Subset(full_dataset, val_indices),   val_tf)
+    test_ds  = TransformSubset(Subset(full_dataset, test_indices),  val_tf)
+
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,
+                              num_workers=NUM_WORKERS, pin_memory=True, drop_last=True)
+    val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False,
+                              num_workers=NUM_WORKERS, pin_memory=True)
+    test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False,
+                              num_workers=NUM_WORKERS, pin_memory=True)
+
+    print(f"  Train: {len(train_indices)} | Val: {len(val_indices)} | Test: {len(test_indices)}")
+
+    # Modelo fresco para cada fold
+    torch.manual_seed(SEED + fold_idx)
+    print(f"🔹 Cargando {PESOS}...")
+    # img_size: timm reinterpola el positional embedding (viene a 518 px)
+    model = timm.create_model(PESOS, pretrained=True, num_classes=num_classes,
+                              drop_path_rate=DROP_PATH, img_size=IMAGE_SIZE)
+    model.to(device)
+    ema = ModelEmaV2(model, decay=EMA_DECAY)
+
+    # Pesos por clase (inverso a la frecuencia) para compensar el desbalance en train
+    cw = compute_class_weight("balanced", classes=np.arange(num_classes),
+                              y=all_labels[train_indices])
+    if CLASS_WEIGHTS == "sqrt":
+        cw = np.sqrt(cw)
+    criterion = WeightedSmoothCE(torch.tensor(cw, dtype=torch.float32, device=device),
+                                 LABEL_SMOOTHING)
+
+    optimizer = create_optimizer_v2(model, opt="adamw", lr=LR,
+                                    weight_decay=WEIGHT_DECAY, layer_decay=LAYER_DECAY)
+    scheduler = CosineLRScheduler(optimizer, t_initial=EPOCHS, lr_min=LR_MIN,
+                                  warmup_t=WARMUP_EPOCHS, warmup_lr_init=LR_MIN)
+    scaler = torch.amp.GradScaler(device.type, enabled=USE_AMP)
+
+    best_val_acc = 0.0
+    best_state   = None
+    patience_ctr = 0
+
+    print("🔓 Fine-tuning completo (AdamW + layer decay + coseno + EMA)...")
+    for epoch in range(1, EPOCHS + 1):
+        tr_loss, tr_acc = train_epoch(model, ema, train_loader, optimizer, scaler,
+                                      criterion, epoch)
+        scheduler.step(epoch)
+
+        # Se valida el modelo EMA, que es el que se guarda
+        va_true, va_pred = predecir(ema.module, val_loader, f"Epoch {epoch:02d}/{EPOCHS}   val")
+        va_acc = accuracy_score(va_true, va_pred)
+        va_f1  = f1_score(va_true, va_pred, average="macro", zero_division=0)
+        lr_actual = max(g["lr"] for g in optimizer.param_groups)
+        print(f"Epoch {epoch:02d}/{EPOCHS} — lr={lr_actual:.2e} | "
+              f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} | "
+              f"val_acc(EMA)={va_acc:.4f} val_f1_macro(EMA)={va_f1:.4f}")
+
+        if va_acc > best_val_acc:
+            best_val_acc = va_acc
+            best_state   = {k: v.cpu().clone() for k, v in ema.module.state_dict().items()}
+            patience_ctr = 0
+        else:
+            patience_ctr += 1
+            if patience_ctr >= PATIENCE:
+                print(f"⏹ Early stopping en epoch {epoch}.")
+                break
+
+    model.load_state_dict(best_state)
+    print(f"✅ Mejor val_acc fold {fold_idx}: {best_val_acc:.4f}")
+    del ema
+
+    # Evaluación en test: accuracy + métricas por clase (datos desbalanceados)
+    test_true, test_preds = predecir(model, test_loader, "test")
+    test_acc      = accuracy_score(test_true, test_preds)
+    test_f1_macro = f1_score(test_true, test_preds, average="macro", zero_division=0)
+    test_bal_acc  = balanced_accuracy_score(test_true, test_preds)
+    test_cm       = confusion_matrix(test_true, test_preds,
+                                     labels=list(range(num_classes))).tolist()
+    test_report   = classification_report(test_true, test_preds,
+                                          labels=list(range(num_classes)),
+                                          target_names=class_names, output_dict=True,
+                                          zero_division=0)
+    print(f"🧪 Test fold {fold_idx}: acc={test_acc:.4f} | "
+          f"f1_macro={test_f1_macro:.4f} | bal_acc={test_bal_acc:.4f}")
+
+    fold_results.append({"fold": fold_idx, "val_acc": float(best_val_acc), "test_acc": test_acc,
+                         "test_f1_macro": float(test_f1_macro),
+                         "test_balanced_acc": float(test_bal_acc)})
+    # Acumular predicciones out-of-fold (cada imagen es test exactamente una vez)
+    oof_true.extend(test_true)
+    oof_pred.extend(test_preds)
+    # Predicciones por imagen del test (-> oof_predicciones.csv) y split.json
+    import predicciones
+    predicciones.guardar_fold(model, test_loader, full_dataset, RUTA_DATOS, class_names,
+                              fold_output_dir, device, train_indices, val_indices, test_indices)
+
+    # Guardar modelo y meta del fold
+    weights_path = os.path.join(fold_output_dir, "model.pt")
+    torch.save(model.state_dict(), weights_path)
+    print(f"✅ Pesos guardados en: {weights_path}")
+
+    meta = {
+        "framework":     "pt",
+        "arch":          ARCH,
+        "image_size":    [IMAGE_SIZE, IMAGE_SIZE],
+        "class_names":   class_names,
+        "preprocessing": "imagenet_meanstd",
+        "fold":          fold_idx,
+        "n_splits":      N_SPLITS,
+        "val_acc":       float(best_val_acc),
+        "test_acc":      test_acc,
+        "test_f1_macro":     float(test_f1_macro),
+        "test_balanced_acc": float(test_bal_acc),
+        "confusion_matrix":      test_cm,
+        "classification_report": test_report,
+        "notes": (f"DINOv2 ViT-B/14 fine-tuning completo: {PESOS}, {IMAGE_SIZE}px, class weights "
+                  f"{CLASS_WEIGHTS}, fine-tuning completo "
+                  f"AdamW lr={LR} layer_decay={LAYER_DECAY}, coseno, label smoothing "
+                  f"{LABEL_SMOOTHING}, drop path {DROP_PATH}, EMA {EMA_DECAY}"),
+    }
+    with open(os.path.join(fold_output_dir, "meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+# ==============================================================
+# RESUMEN CROSS-VALIDATION
+# ==============================================================
+val_accs  = [r["val_acc"]  for r in fold_results]
+test_accs = [r["test_acc"] for r in fold_results]
+test_f1s  = [r["test_f1_macro"]     for r in fold_results]
+test_bals = [r["test_balanced_acc"] for r in fold_results]
+cv_summary = {
+    "n_splits":      N_SPLITS,
+    "folds":         fold_results,
+    "mean_val_acc":  float(np.mean(val_accs)),
+    "std_val_acc":   float(np.std(val_accs)),
+    "mean_test_acc": float(np.mean(test_accs)),
+    "std_test_acc":  float(np.std(test_accs)),
+    "mean_test_f1_macro":     float(np.mean(test_f1s)),
+    "std_test_f1_macro":      float(np.std(test_f1s)),
+    "mean_test_balanced_acc": float(np.mean(test_bals)),
+    "std_test_balanced_acc":  float(np.std(test_bals)),
+}
+
+# Métricas por clase sobre el OOF agrupado (cada clase evaluada con TODAS sus imágenes)
+cv_summary["pooled_oof"] = {
+    "n_total":      len(oof_true),
+    "accuracy":     float(accuracy_score(oof_true, oof_pred)),
+    "f1_macro":     float(f1_score(oof_true, oof_pred, average="macro", zero_division=0)),
+    "balanced_acc": float(balanced_accuracy_score(oof_true, oof_pred)),
+    "confusion_matrix":      confusion_matrix(oof_true, oof_pred,
+                                              labels=list(range(num_classes))).tolist(),
+    "classification_report": classification_report(oof_true, oof_pred,
+                                                    labels=list(range(num_classes)),
+                                                    target_names=class_names,
+                                                    output_dict=True, zero_division=0),
+}
+cv_path = os.path.join(OUTPUT_DIR, "cv_results.json")
+with open(cv_path, "w", encoding="utf-8") as f:
+    json.dump(cv_summary, f, ensure_ascii=False, indent=2)
+
+print(f"\n{'='*60}")
+print(f"✅ CV completo — mean_test_acc: {cv_summary['mean_test_acc']:.4f} ± {cv_summary['std_test_acc']:.4f}")
+print(f"          — mean_test_f1_macro: {cv_summary['mean_test_f1_macro']:.4f} ± {cv_summary['std_test_f1_macro']:.4f}")
+print(f"          — mean_test_balanced_acc: {cv_summary['mean_test_balanced_acc']:.4f} ± {cv_summary['std_test_balanced_acc']:.4f}")
+print(f"📊 OOF agrupado ({cv_summary['pooled_oof']['n_total']} imgs) — "
+      f"f1_macro: {cv_summary['pooled_oof']['f1_macro']:.4f} | "
+      f"balanced_acc: {cv_summary['pooled_oof']['balanced_acc']:.4f}")
+print(f"✅ Resultados guardados en: {cv_path}")
+print("✅ Entrenamiento DINOv2 fine-tuning completado.")

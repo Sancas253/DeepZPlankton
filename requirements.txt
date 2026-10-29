@@ -1,0 +1,8 @@
+# Dependencias de la app de escritorio (inferencia con ONNX Runtime)
+PyQt5>=5.15
+onnxruntime>=1.16
+opencv-python>=4.8
+numpy>=1.23
+pandas>=1.5
+Pillow>=9.0
+openpyxl>=3.1
