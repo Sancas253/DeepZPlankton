@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Datos y modelos (no se versionan)
+data/
+datasets/
+*.h5
+*.pt
+*.pth
+*.onnx
+*.ckpt
+
+# Resultados generados
+output/
+resultados/
+
+# Sistema
+.DS_Store
+Thumbs.db
