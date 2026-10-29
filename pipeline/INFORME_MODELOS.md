@@ -8,7 +8,7 @@ El notebook es un "envoltorio". Dentro trae embebido (en base64) el código de `
 
 ## Índice
 
-1. [Panorama: los 12 modelos de un vistazo](#1-panorama)
+1. [Panorama: los 10 modelos de un vistazo](#1-panorama)
 2. [Decisiones comunes a todos los modelos](#2-decisiones-comunes)
    - 2.1 Borrado de la barra de escala
    - 2.2 Filtro de imágenes gigantes y mapeo de clases
@@ -30,7 +30,7 @@ El notebook es un "envoltorio". Dentro trae embebido (en base64) el código de `
 ---
 
 <a id="1-panorama"></a>
-## 1. Panorama: los 12 modelos de un vistazo
+## 1. Panorama: los 10 modelos de un vistazo
 
 | `MODELO` | Qué red es | Tipo | ¿Qué se entrena? | Resolución | Framework |
 |---|---|---|---|---|---|
@@ -44,21 +44,6 @@ El notebook es un "envoltorio". Dentro trae embebido (en base64) el código de `
 | `dinov2_mlp` | DINOv2 ViT-B/14 + MLP | Vision Transformer autosupervisado | Solo la cabeza | 224 | PyTorch/HF |
 | `dinov2_ft` | DINOv2 ViT-B/14 | Vision Transformer autosupervisado | Toda la red (receta avanzada) | 224 | PyTorch/timm |
 | `convnext_dinov2_fusion` | ConvNeXt-Tiny + DINOv2 + MLP | Fusión CNN + ViT | Solo la cabeza | 224 | PyTorch |
-| `dinov2_convnext_tiny` | DINOv2 → adaptador → ConvNeXt-Tiny | Clasificador espacial sobre features | Adaptador y ConvNeXt preentrenado; DINOv2 congelado | 224 | PyTorch/HF/timm |
-| `dinov2_swin_tiny` | DINOv2 → adaptador → Swin-Tiny | Clasificador espacial sobre features | Adaptador y Swin preentrenado; DINOv2 congelado | 224 | PyTorch/HF/timm |
-| `dinov2_convnext_tiny_plus` | DINOv2 (4 capas + CLS) → adaptador → etapas 2-3 de ConvNeXt-Tiny | Clasificador espacial sobre features | Adaptador, etapas 2-3 y cabeza; DINOv2 congelado | 280 | PyTorch/HF/timm |
-| `dinov2_ft_convnext_tiny` | DINOv2 ViT-B/14 (fine-tuning) → adaptador → etapas 2-3 de ConvNeXt-Tiny | ViT + CNN en serie | Todo (ViT con la receta de `dinov2_ft`) | 224 | PyTorch/timm |
-
-Las dos variantes espaciales usan pesos preentrenados en ambos modelos.
-Un adaptador 1×1 convierte los mapas DINOv2 de 768 canales a los 96 que esperan
-los bloques del Tiny. Swin usa ventanas de 4. Las primeras 3 épocas entrenan
-adaptador y cabeza; después se ajusta todo el Tiny, manteniendo DINOv2 congelado.
-La receta usa 30 épocas totales, batch 32, AdamW, layer decay 0.8, warmup/coseno,
-EMA, label smoothing y selección por val_acc con paciencia 8, siguiendo la
-familia plus. LR base 1e-4; adaptador/cabeza 1e-3. Conservan folds, aumentación
-y salidas comunes, incluido ONNX. La ventaja de transferir los bloques sobre
-estas features debe evaluarse, no se presupone. Detalles y ejecución en
-[train_dinov2_spatial.md](../train_dinov2_spatial.md).
 
 Los modelos forman una **progresión experimental**. Primero vienen las líneas de base viejas (ResNet legacy, EfficientNet). Después, backbones modernos con fine-tuning parcial (Swin, ConvNeXt). Después, backbones congelados de distinto tipo para comparar la *calidad de las features* (ResNet-MLP, DINOv2-MLP, fusión). Al final, el fine-tuning completo con receta moderna (los `*_plus` y `dinov2_ft`).
 
@@ -90,11 +75,7 @@ Estas decisiones se aplican igual (o casi igual) en todos los modelos. Se explic
 ### 2.3 Transfer learning (pesos preentrenados)
 
 Los modelos originales parten de pesos preentrenados (ImageNet-1k, ImageNet-22k
-o DINOv2 LVD-142M). Las variantes `dinov2_convnext_tiny` y `dinov2_swin_tiny`
-también usan un extractor DINOv2 preentrenado y reutilizan los bloques de
-ConvNeXt/Swin preentrenados. Solo el adaptador de entrada y la cabeza de clases
-se inicializan desde cero. Este cambio reemplaza la primera versión espacial;
-los checkpoints nuevos usan el identificador de arquitectura `_transfer`.
+o DINOv2 LVD-142M).
 
 **Por qué:** el dataset de plancton tiene del orden de decenas de miles de imágenes y muchas clases desbalanceadas. Entrenar una red de 28–86 M de parámetros desde cero con eso produciría sobreajuste. Los pesos preentrenados ya saben detectar bordes, texturas y formas. Solo hay que *adaptarlos* al dominio.
 

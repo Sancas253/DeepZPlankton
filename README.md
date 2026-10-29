@@ -72,7 +72,7 @@ pip install -r requirements-train.txt
 python pipeline/deepz_pipeline.py --modelo swin_tiny --dataset ../dataset
 ```
 
-Modelos disponibles en `--modelo`: `resnet50_legacy`, `resnet50_mlp`, `efficientnetb3`, `swin_tiny`, `convnext_tiny`, `convnext_tiny_plus`, `dinov2_mlp`, `dinov2_ft`, `dinov2_ft_convnext_tiny`, `convnext_dinov2_fusion` y `convnext_dinov2_fusion_plus`. El detalle de cada uno está en [`pipeline/INFORME_MODELOS.md`](pipeline/INFORME_MODELOS.md).
+Modelos disponibles en `--modelo`: `resnet50_legacy`, `resnet50_mlp`, `efficientnetb3`, `swin_tiny`, `convnext_tiny`, `convnext_tiny_plus`, `dinov2_mlp`, `dinov2_ft`, `convnext_dinov2_fusion` y `convnext_dinov2_fusion_plus`. El detalle de cada uno está en [`pipeline/INFORME_MODELOS.md`](pipeline/INFORME_MODELOS.md).
 
 ## Tests
 

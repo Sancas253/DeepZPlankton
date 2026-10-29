@@ -21,26 +21,8 @@ import numpy as np
 
 
 def build_model(arch, num_classes, image_size=None):
-    if arch in ("dinov2_convnext_tiny", "dinov2_swin_tiny"):
-        from modelo_dinov2_spatial import DINOv2Spatial
-        return DINOv2Spatial(num_classes, backbone=arch.removeprefix("dinov2_"),
-                             image_size=image_size[0] if image_size else 224,
-                             pretrained=False, transfer=False)
-    if arch in ("dinov2_convnext_tiny_transfer", "dinov2_swin_tiny_transfer"):
-        from modelo_dinov2_spatial import DINOv2Spatial
-        return DINOv2Spatial(num_classes, backbone=arch.removeprefix("dinov2_").removesuffix("_transfer"),
-                             image_size=image_size[0] if image_size else 224,
-                             pretrained=False)
-    if arch == "dinov2_convnext_tiny_plus":
-        from modelo_dinov2_spatial import DINOv2ConvNeXtPlus
-        return DINOv2ConvNeXtPlus(num_classes, image_size=image_size[0] if image_size else 280,
-                                  pretrained=False)
-    if arch == "dinov2_ft_convnext_tiny":
-        from modelo_dinov2_spatial import DINOv2FTConvNeXt
-        return DINOv2FTConvNeXt(num_classes, image_size=image_size[0] if image_size else 224,
-                                pretrained=False)
     if arch == "convnext_dinov2_fusion_plus":
-        from modelo_dinov2_spatial import ConvNeXtDINOv2FusionPlus
+        from modelo_fusion_plus import ConvNeXtDINOv2FusionPlus
         return ConvNeXtDINOv2FusionPlus(num_classes, image_size=image_size[0] if image_size else 288,
                                         pretrained=False)
     if arch == "swin_tiny":

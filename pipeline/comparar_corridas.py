@@ -14,7 +14,7 @@ Para demostrar si el techo de precisión está en los datos y no en los modelos:
      mano; con --dataset se copian a carpetas real__como__predicha/.
 
 Uso:
-  python comparar_corridas.py DINOv2FT=corridas/dinov2_ft  Serie=corridas/dinov2_ft_convnext_tiny \
+  python comparar_corridas.py DINOv2FT=corridas/dinov2_ft  Fusion=corridas/convnext_dinov2_fusion_plus \
       ConvNeXtPlus=corridas/convnext_tiny_plus/oof_predicciones.csv --salida comparacion \
       --dataset /content/deepz/dataset_limpio
 Cada argumento es NOMBRE=carpeta del entrenamiento (con oof_predicciones.csv) o el .csv.

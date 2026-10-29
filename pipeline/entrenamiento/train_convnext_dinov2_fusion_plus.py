@@ -16,7 +16,7 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import (accuracy_score, f1_score, balanced_accuracy_score,
                              confusion_matrix, classification_report)
-from modelo_dinov2_spatial import ConvNeXtDINOv2FusionPlus
+from modelo_fusion_plus import ConvNeXtDINOv2FusionPlus
 from timm.scheduler import CosineLRScheduler
 from timm.utils import ModelEmaV2
 from tqdm import tqdm

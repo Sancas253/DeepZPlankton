@@ -21,7 +21,7 @@ PIPELINE = Path(__file__).resolve().parents[1] / "pipeline"
 sys.path.insert(0, str(PIPELINE))
 import deepz_pipeline
 import exportar_onnx
-import modelo_dinov2_spatial
+import modelo_fusion_plus
 
 ARCH = "convnext_dinov2_fusion_plus"
 CREATE_MODEL = timm.create_model
@@ -38,7 +38,7 @@ def offline_timm(name, **kwargs):
 class FusionPlusTest(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(2)
-        self.patcher = patch.object(modelo_dinov2_spatial.timm, "create_model",
+        self.patcher = patch.object(modelo_fusion_plus.timm, "create_model",
                                     side_effect=offline_timm)
         self.patcher.start()
 
@@ -46,17 +46,17 @@ class FusionPlusTest(unittest.TestCase):
         self.patcher.stop()
 
     def test_shapes(self):
-        model = modelo_dinov2_spatial.ConvNeXtDINOv2FusionPlus(3).eval()
+        model = modelo_fusion_plus.ConvNeXtDINOv2FusionPlus(3).eval()
         self.assertEqual(model.fc.in_features, 768 + model.vit.num_features)
         with torch.no_grad():
             self.assertEqual(model(torch.randn(2, 3, 288, 288)).shape, (2, 3))
         with self.assertRaises(ValueError):
-            modelo_dinov2_spatial.ConvNeXtDINOv2FusionPlus(3, vit_size=220)
+            modelo_fusion_plus.ConvNeXtDINOv2FusionPlus(3, vit_size=220)
 
     def test_phases_and_optimizer(self):
         from timm.scheduler import CosineLRScheduler
 
-        model = modelo_dinov2_spatial.ConvNeXtDINOv2FusionPlus(2, image_size=112, vit_size=112)
+        model = modelo_fusion_plus.ConvNeXtDINOv2FusionPlus(2, image_size=112, vit_size=112)
         optimizer = model.make_optimizer(1e-4, 1e-3, 0.05, 0.9, 5e-5, 0.75)
         scheduler = CosineLRScheduler(optimizer, t_initial=30, warmup_t=3, warmup_lr_init=1e-6)
         scheduler.step(3)

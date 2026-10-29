@@ -29,8 +29,6 @@ Modelos disponibles (--modelo):
                           (AdamW, layer decay, coseno, EMA)
   convnext_dinov2_fusion  ConvNeXt-Tiny + DINOv2 congelados + MLP     224x224
   dinov2_mlp              DINOv2-base congelado + MLP (PyTorch)       224x224
-  dinov2_ft_convnext_tiny DINOv2 con fine-tuning (4 capas + CLS) →   224x224
-                          etapas 2-3 de ConvNeXt-Tiny (receta plus)
   convnext_dinov2_fusion_plus ConvNeXt-Tiny (288) ‖ DINOv2 (224) en   288x288
                           paralelo, ambos con fine-tuning
   dinov2_ft               DINOv2-base (ViT-B/14) fine-tuning completo 224x224
@@ -88,7 +86,6 @@ MODELOS = {
     "convnext_tiny_plus":     ("train_convnext_tiny_plus.py",     "RUTA_DATOS", "convnext_tiny_plus"),
     "convnext_dinov2_fusion": ("train_convnext_dinov2_fusion.py", "RUTA_DATOS", "convnext_dinov2_fusion"),
     "dinov2_mlp":             ("train_dinov2_mlp.py",             "RUTA_DATOS", "dinov2_mlp"),
-    "dinov2_ft_convnext_tiny": ("train_dinov2_ft_convnext_tiny.py", "RUTA_DATOS", "dinov2_ft_convnext_tiny"),
     "convnext_dinov2_fusion_plus": ("train_convnext_dinov2_fusion_plus.py", "RUTA_DATOS", "convnext_dinov2_fusion_plus"),
     "dinov2_ft":              ("train_dinov2_ft.py",              "RUTA_DATOS", "dinov2_ft"),
     "resnet50_mlp":           ("train_resnet50.py",               "RUTA_DATOS", "resnet50_mlp"),

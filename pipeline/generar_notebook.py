@@ -19,7 +19,7 @@ import zipfile
 AQUI = os.path.dirname(os.path.abspath(__file__))
 SALIDA = os.path.join(AQUI, "Pipeline_DeepZ.ipynb")
 ARCHIVOS = ["deepz_pipeline.py", "eliminar_barra.py", "exportar_onnx.py",
-            "aumentacion.py", "mapeo_clases_ejemplo.json", "modelo_dinov2_spatial.py",
+            "aumentacion.py", "mapeo_clases_ejemplo.json", "modelo_fusion_plus.py",
             "predicciones.py", "analizar_modelo.py", "comparar_corridas.py",
             "reconstruir_predicciones.py"]
 ARCHIVOS += sorted(os.path.join("entrenamiento", f)
@@ -52,7 +52,7 @@ Imágenes **con barra de escala** → borrado de la barra → entrenamiento K-Fo
 - Colab gratis puede desconectar sesiones largas aunque esté corriendo; con Colab Pro o con el navegador abierto es más seguro."""
 
 CELDA = r'''# @title DeepZPlankton · barra → entrenamiento → matriz → ONNX
-MODELO = "swin_tiny"  # @param ["swin_tiny", "convnext_tiny", "convnext_tiny_plus", "convnext_dinov2_fusion", "dinov2_mlp", "dinov2_ft_convnext_tiny", "convnext_dinov2_fusion_plus", "dinov2_ft", "resnet50_mlp", "efficientnetb3", "resnet50_legacy"]
+MODELO = "swin_tiny"  # @param ["swin_tiny", "convnext_tiny", "convnext_tiny_plus", "convnext_dinov2_fusion", "dinov2_mlp", "convnext_dinov2_fusion_plus", "dinov2_ft", "resnet50_mlp", "efficientnetb3", "resnet50_legacy"]
 # Carpeta o .zip con las imágenes CON barra
 ENTRADA_DRIVE = "/content/drive/MyDrive/Training set III/PROYECTO AUTOMATIC ZOO"  # @param {type:"string"}
 RESULTADOS_DRIVE = "/content/drive/MyDrive/deepz_resultados"  # @param {type:"string"}
