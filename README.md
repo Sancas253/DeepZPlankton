@@ -13,8 +13,6 @@ DeepZ-Plankton procesa imágenes escaneadas de muestras de zooplancton:
 4. guarda los recortes en carpetas por especie,
 5. genera un reporte con los atributos morfométricos de cada espécimen.
 
-![Diagrama de subsistemas](docs/diagramas/diagrama_subsistemas.png)
-
 ## Estructura del repositorio
 
 ```
@@ -32,7 +30,6 @@ pipeline/               Pipeline de entrenamiento
 entrenamiento_v1/       Primeras versiones de los scripts de entrenamiento
 scripts/                Utilidades (promediado/export ONNX, matriz de confusión)
 tests/                  Tests de la app y del pipeline
-docs/                   Especificación funcional y diagramas
 DeepZPlankton_V2.spec   Configuración de PyInstaller
 build.bat               Build del ejecutable en Windows
 ```
@@ -82,7 +79,3 @@ pytest tests
 ```
 
 Los tests `test_pipeline_*` y `test_predicciones_oof` necesitan además las dependencias de entrenamiento.
-
-## Documentación
-
-- [Especificación Funcional](docs/Especificacion_Funcional.pdf)
