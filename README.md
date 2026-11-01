@@ -26,7 +26,6 @@ pipeline/               Pipeline de entrenamiento
   Pipeline_DeepZ.ipynb  Notebook principal (Colab): barra → dataset → K-Fold → ONNX
   deepz_pipeline.py     Mismo pipeline por línea de comandos
   entrenamiento/        Scripts de entrenamiento de cada modelo
-  INFORME_MODELOS.md    Explicación de cada modelo y sus decisiones
 entrenamiento_v1/       Primeras versiones de los scripts de entrenamiento
 scripts/                Utilidades (promediado/export ONNX, matriz de confusión)
 tests/                  Tests de la app y del pipeline
@@ -69,7 +68,7 @@ pip install -r requirements-train.txt
 python pipeline/deepz_pipeline.py --modelo swin_tiny --dataset ../dataset
 ```
 
-Modelos disponibles en `--modelo`: `resnet50_legacy`, `resnet50_mlp`, `efficientnetb3`, `swin_tiny`, `convnext_tiny`, `convnext_tiny_plus`, `dinov2_mlp`, `dinov2_ft`, `convnext_dinov2_fusion` y `convnext_dinov2_fusion_plus`. El detalle de cada uno está en [`pipeline/INFORME_MODELOS.md`](pipeline/INFORME_MODELOS.md).
+Modelos disponibles en `--modelo`: `resnet50_legacy`, `resnet50_mlp`, `efficientnetb3`, `swin_tiny`, `convnext_tiny`, `convnext_tiny_plus`, `dinov2_mlp`, `dinov2_ft`, `convnext_dinov2_fusion` y `convnext_dinov2_fusion_plus`.
 
 ## Tests
 
